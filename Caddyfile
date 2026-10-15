@@ -1,0 +1,11 @@
+{$DOMAIN} {
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+
+    reverse_proxy web_a:8000 web_b:8000 {
+        lb_policy round_robin
+    }
+}

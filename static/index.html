@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#091320">
+  <title>TCP 실시간 네트워크 모니터링 실습</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+      --page: #091320;
+      --surface: #111f30;
+      --surface-raised: #15263a;
+      --border: #2a3e54;
+      --text: #eef5fc;
+      --muted: #a9bed1;
+      --cyan: #62d6e8;
+      --open: #51d7a6;
+      --refused: #ff8394;
+      --timeout: #ffc66e;
+      --error: #b8a2fa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 85% 0%, rgba(27, 101, 128, 0.20), transparent 30rem),
+        radial-gradient(circle at 0% 50%, rgba(29, 72, 112, 0.16), transparent 28rem),
+        var(--page);
+    }
+
+    .wrap { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      background: rgba(9, 19, 32, 0.88);
+    }
+
+    .header-inner {
+      min-height: 82px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #3e8599;
+      border-radius: 12px;
+      color: var(--cyan);
+      background: #123344;
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.01em; }
+    .brand-subtitle { margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+    .connection-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .connection-indicator::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--timeout);
+      box-shadow: 0 0 0 3px rgba(255, 198, 110, 0.12);
+    }
+
+    .connection-indicator[data-connection="connected"] {
+      color: var(--open);
+      border-color: rgba(81, 215, 166, 0.35);
+    }
+
+    .connection-indicator[data-connection="connected"]::before {
+      background: var(--open);
+      box-shadow: 0 0 0 3px rgba(81, 215, 166, 0.14);
+    }
+
+    .connection-indicator[data-connection="offline"] {
+      color: var(--refused);
+      border-color: rgba(255, 131, 148, 0.30);
+    }
+
+    .connection-indicator[data-connection="offline"]::before {
+      background: var(--refused);
+      box-shadow: 0 0 0 3px rgba(255, 131, 148, 0.12);
+    }
+
+    main { padding: 44px 0 54px; }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 { margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1.12; letter-spacing: -0.035em; }
+    .intro { max-width: 680px; margin: 14px 0 0; color: var(--muted); line-height: 1.65; }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 22px 0 34px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .flow span:not(.arrow) {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: rgba(21, 38, 58, 0.8);
+    }
+
+    .flow .arrow { color: var(--cyan); font-weight: 800; }
+
+    .instance-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .instance-banner strong {
+      padding: 7px 10px;
+      border: 1px solid rgba(98, 214, 232, 0.35);
+      border-radius: 7px;
+      color: var(--cyan);
+      background: rgba(98, 214, 232, 0.08);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .monitor-alert {
+      margin: 0 0 22px;
+      padding: 16px 18px;
+      border: 1px solid rgba(255, 198, 110, 0.55);
+      border-radius: 12px;
+      color: var(--timeout);
+      background: rgba(255, 198, 110, 0.10);
+    }
+    .monitor-alert[hidden] { display: none; }
+    .monitor-alert[data-level="error"] {
+      border-color: rgba(255, 131, 148, 0.55);
+      color: var(--refused);
+      background: rgba(255, 131, 148, 0.10);
+    }
+    .monitor-alert[data-level="success"] {
+      border-color: rgba(81, 215, 166, 0.55);
+      color: var(--open);
+      background: rgba(81, 215, 166, 0.10);
+    }
+    .monitor-alert strong { display: block; font-size: 15px; }
+    .monitor-alert p { margin: 6px 0 0; color: var(--text); font-size: 13px; line-height: 1.5; }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.10);
+    }
+
+    .overview-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(250px, 1fr); gap: 18px; }
+    .latest { padding: 24px; }
+    .panel-label { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .latest-top { display: flex; justify-content: space-between; align-items: start; gap: 15px; }
+    .latest-target { margin: 22px 0 6px; font-size: clamp(20px, 3vw, 29px); font-weight: 700; overflow-wrap: anywhere; }
+    .latest-detail { min-height: 24px; margin: 8px 0 28px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+    .latest-meta { display: flex; flex-wrap: wrap; gap: 26px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .latest-meta div { display: grid; gap: 5px; }
+    .latest-meta small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .latest-meta strong { font-size: 14px; font-weight: 650; }
+    .latest.is-stale { border-color: rgba(255, 198, 110, 0.55); }
+    .latest.is-stale .status-pill {
+      color: var(--muted);
+      border-color: var(--border);
+      background: var(--surface-raised);
+    }
+
+    .status-pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-raised);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .status-open { color: var(--open); border-color: rgba(81, 215, 166, 0.35); background: rgba(81, 215, 166, 0.10); }
+    .status-refused { color: var(--refused); border-color: rgba(255, 131, 148, 0.35); background: rgba(255, 131, 148, 0.10); }
+    .status-timeout { color: var(--timeout); border-color: rgba(255, 198, 110, 0.35); background: rgba(255, 198, 110, 0.10); }
+    .status-error { color: var(--error); border-color: rgba(184, 162, 250, 0.35); background: rgba(184, 162, 250, 0.10); }
+
+    .guide { padding: 24px; }
+    .guide h2 { margin: 0 0 19px; font-size: 17px; }
+    .guide-list { display: grid; gap: 17px; margin: 0; padding: 0; list-style: none; }
+    .guide-list li { display: grid; grid-template-columns: 10px 1fr; gap: 12px; }
+    .guide-dot { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; }
+    .guide-dot.open { background: var(--open); }
+    .guide-dot.refused { background: var(--refused); }
+    .guide-dot.timeout { background: var(--timeout); }
+    .guide-dot.error { background: var(--error); }
+    .guide-list strong { display: block; margin-bottom: 3px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .guide-list p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 18px 0 30px; }
+    .stat { min-height: 98px; padding: 17px 19px; }
+    .stat span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+    .stat strong { display: block; margin-top: 12px; font-size: 29px; line-height: 1; font-variant-numeric: tabular-nums; }
+    .stat.open strong { color: var(--open); }
+    .stat.refused strong { color: var(--refused); }
+    .stat.timeout strong { color: var(--timeout); }
+    .stat.error strong { color: var(--error); }
+    .target-state-section { margin-bottom: 30px; }
+    .target-state-section.is-stale .panel { border-color: rgba(255, 198, 110, 0.55); }
+    .target-state-section.is-stale .status-pill {
+      color: var(--muted);
+      border-color: var(--border);
+      background: var(--surface-raised);
+    }
+    .target-table td:nth-child(4) { white-space: normal; }
+    .target-table td:nth-child(5) { white-space: nowrap; }
+    .failure-warning { color: var(--refused); font-weight: 800; }
+
+    .section-head { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 15px; }
+    .section-head h2 { margin: 0; font-size: 21px; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 710px; }
+    th, td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    th { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; background: var(--surface-raised); }
+    td { font-size: 13px; line-height: 1.45; }
+    tbody tr:last-child td { border-bottom: 0; }
+    td:nth-child(1), td:nth-child(4) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    td:nth-child(2), td:nth-child(5) { overflow-wrap: anywhere; }
+    .empty { padding: 42px 18px; color: var(--muted); text-align: center; }
+    .note { margin: 16px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    footer { padding: 22px 0 28px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 850px) {
+      .overview-grid { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 540px) {
+      .wrap { width: min(100% - 28px, 1180px); }
+      .header-inner { min-height: 74px; }
+      .brand-subtitle { display: none; }
+      .connection-indicator { max-width: 128px; overflow: hidden; text-overflow: ellipsis; }
+      main { padding-top: 32px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .section-head { display: block; }
+      .section-head p { margin-top: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap header-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">↔</div>
+        <div>
+          <div class="brand-name">TCP 실시간 네트워크 모니터링 실습</div>
+          <div class="brand-subtitle">네트워크 장애 분석 대시보드</div>
+        </div>
+      </div>
+      <div id="connection" class="connection-indicator" data-connection="connecting" role="status" aria-live="polite">연결 중...</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <p class="eyebrow">실시간 관찰</p>
+    <h1>TCP 연결 상태를 실시간으로 확인하세요.</h1>
+    <p class="intro">연결 시도의 결과를 비교하고, 패킷 캡처와 함께 네트워크 경로에서 일어난 일을 분석합니다.</p>
+    <div class="instance-banner"><span>접속 주소</span><strong id="instance-address">—</strong><span>로컬 실습에서는 :8001과 :8002를 각각 열어 이벤트 전달을 비교하세요.</span></div>
+    <div class="flow" aria-label="모니터링 데이터 흐름">
+      <span>TCP 연결 검사</span><span class="arrow" aria-hidden="true">→</span>
+      <span>Redis</span><span class="arrow" aria-hidden="true">→</span>
+      <span>WebSocket</span><span class="arrow" aria-hidden="true">→</span>
+      <span>브라우저</span>
+    </div>
+
+    <section id="monitor-alert" class="monitor-alert" role="status" aria-live="polite" hidden>
+      <strong id="monitor-alert-title"></strong>
+      <p id="monitor-alert-detail"></p>
+    </section>
+
+    <div class="overview-grid">
+      <section id="latest-panel" class="panel latest" aria-labelledby="latest-heading">
+        <div class="latest-top">
+          <p id="latest-heading" class="panel-label">최근 연결 검사</p>
+          <span id="latest-status" class="status-pill" aria-live="polite">대기 중</span>
+        </div>
+        <div id="latest-target" class="latest-target">첫 검사 결과를 기다리는 중</div>
+        <p id="latest-detail" class="latest-detail">연결 검사가 실행되면 결과가 여기에 표시됩니다.</p>
+        <div class="latest-meta">
+          <div><small>관찰 시각</small><strong id="latest-time">—</strong></div>
+          <div><small>검사 소요 시간</small><strong id="latest-latency">—</strong></div>
+        </div>
+      </section>
+
+      <section class="panel guide" aria-labelledby="guide-heading">
+        <h2 id="guide-heading">결과 해석</h2>
+        <ul class="guide-list">
+          <li><span class="guide-dot open" aria-hidden="true"></span><div><strong>연결 성공</strong><p>TCP 연결이 성립했습니다. Wireshark에서 3-Way Handshake를 확인하세요.</p></div></li>
+          <li><span class="guide-dot refused" aria-hidden="true"></span><div><strong>연결 거부</strong><p>포트에 리스너가 없거나 거부 정책이 있을 수 있습니다. RST 여부를 확인하세요.</p></div></li>
+          <li><span class="guide-dot timeout" aria-hidden="true"></span><div><strong>시간 초과</strong><p>제한 시간 안에 연결이 성립하지 않았습니다. SYN과 네트워크 경로를 확인하세요.</p></div></li>
+          <li><span class="guide-dot error" aria-hidden="true"></span><div><strong>기타 오류</strong><p>운영체제 오류와 주소, DNS, 라우팅 상태를 확인하세요.</p></div></li>
+        </ul>
+      </section>
+    </div>
+
+    <section class="stats" aria-label="현재 브라우저에서 관찰한 결과">
+      <div class="panel stat"><span>전체</span><strong id="count-total">0</strong></div>
+      <div class="panel stat open"><span>연결 성공</span><strong id="count-open">0</strong></div>
+      <div class="panel stat refused"><span>연결 거부</span><strong id="count-refused">0</strong></div>
+      <div class="panel stat timeout"><span>시간 초과</span><strong id="count-timeout">0</strong></div>
+      <div class="panel stat error"><span>기타 오류</span><strong id="count-error">0</strong></div>
+    </section>
+
+    <section id="target-state-section" class="target-state-section" aria-labelledby="target-state-heading">
+      <div class="section-head">
+        <h2 id="target-state-heading">대상별 상태</h2>
+        <p>대상 주소와 포트별로 수신한 결과를 구분합니다.</p>
+      </div>
+      <div class="panel table-wrap">
+        <table class="target-table">
+          <thead><tr><th scope="col">대상</th><th scope="col">최근 결과</th><th scope="col">관찰된 연속 실패</th><th scope="col">최근 상태 변화</th><th scope="col">관찰 시각</th></tr></thead>
+          <tbody id="target-states"><tr id="target-empty-row"><td class="empty" colspan="5">아직 대상별 검사 결과가 없습니다.</td></tr></tbody>
+        </table>
+      </div>
+      <p class="note">연속 실패는 이 브라우저가 받은 같은 대상의 결과만 셉니다. 3회부터 주의로 표시하며, Redis 또는 WebSocket 전달이 끊기면 대상별 집계를 새로 시작합니다.</p>
+    </section>
+
+    <section aria-labelledby="history-heading">
+      <div class="section-head">
+        <h2 id="history-heading">최근 이벤트</h2>
+        <p>이 브라우저가 받은 최근 결과 30개</p>
+      </div>
+      <div class="panel table-wrap">
+        <table>
+          <thead><tr><th scope="col">시각</th><th scope="col">대상</th><th scope="col">상태</th><th scope="col">검사 시간</th><th scope="col">상세 내용</th></tr></thead>
+          <tbody id="history"><tr id="empty-row"><td class="empty" colspan="5">아직 검사 결과가 없습니다. 페이지를 열어 둔 상태에서 검사를 실행하세요.</td></tr></tbody>
+        </table>
+      </div>
+      <p class="note">검사 시간은 TCP 연결 시도에 걸린 시간이며 ICMP ping 왕복 시간이 아닙니다. 결과 하나만으로 장애 원인을 확정할 수 없습니다.</p>
+    </section>
+  </main>
+
+  <footer><div class="wrap">TCP 실시간 네트워크 모니터링 실습 · 연결 결과와 패킷·경로 분석을 함께 사용해 장애 원인을 추론합니다.</div></footer>
+
+  <script>
+    "use strict";
+
+    const connectionElement = document.getElementById("connection");
+    const monitorAlertElement = document.getElementById("monitor-alert");
+    const monitorAlertTitleElement = document.getElementById("monitor-alert-title");
+    const monitorAlertDetailElement = document.getElementById("monitor-alert-detail");
+    const latestPanelElement = document.getElementById("latest-panel");
+    const latestHeadingElement = document.getElementById("latest-heading");
+    const targetStateSectionElement = document.getElementById("target-state-section");
+    const targetStateHeadingElement = document.getElementById("target-state-heading");
+    const displayPort = location.port || (location.protocol === "https:" ? "443" : "80");
+    document.getElementById("instance-address").textContent = `${location.hostname || "알 수 없음"}:${displayPort}`;
+    const latestStatusElement = document.getElementById("latest-status");
+    const latestTargetElement = document.getElementById("latest-target");
+    const latestDetailElement = document.getElementById("latest-detail");
+    const latestTimeElement = document.getElementById("latest-time");
+    const latestLatencyElement = document.getElementById("latest-latency");
+    const historyElement = document.getElementById("history");
+    const targetStateElement = document.getElementById("target-states");
+    const counters = { total: 0, open: 0, refused: 0, timeout: 0, error: 0 };
+    const statusLabels = { open: "연결 성공", refused: "연결 거부", timeout: "시간 초과", error: "기타 오류" };
+    const maxHistoryRows = 30;
+    const targetStates = new Map();
+    const failureWarningThreshold = 3;
+    let socket = null;
+    let reconnectTimer = null;
+    let healthState = "checking";
+    let healthHttpStatus = null;
+    let healthCheckInProgress = false;
+    let needsFreshEvent = false;
+    let lastEventReceivedAt = null;
+    let redisOutageObserved = false;
+    let redisHealthRestored = false;
+    let recoveryNoticeUntil = 0;
+    let recoveryEventSummary = "";
+    const pageOpenedAt = Date.now();
+
+    function updateMonitorNotice() {
+      let title = "";
+      let detail = "";
+      let level = "warning";
+
+      if (healthState === "redis-down") {
+        title = "Redis 연결 장애 · 결과 전달 중단";
+        detail = "웹 서버의 상태 확인이 HTTP 503을 반환했습니다. 아래 TCP 결과는 이전에 받은 기록이며 현재 대상 상태를 뜻하지 않습니다.";
+        level = "error";
+      } else if (healthState === "unreachable") {
+        title = "웹 서버 상태를 확인할 수 없습니다";
+        detail = "상태 확인 요청에 응답이 없습니다. 웹 서버와 네트워크 연결을 확인하세요.";
+        level = "error";
+      } else if (healthState === "http-error") {
+        title = "웹 서버 상태 확인 실패";
+        detail = `상태 확인 요청이 HTTP ${healthHttpStatus}을(를) 반환했습니다. 서버 로그를 확인하세요.`;
+        level = "error";
+      } else if (healthState === "ok") {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          title = "WebSocket 연결을 재시도 중입니다";
+          detail = "Redis는 응답하지만 이 화면은 아직 새 검사 결과를 받지 못하고 있습니다.";
+        } else if (needsFreshEvent) {
+          title = "전달 경로 복구 · 새 결과 대기 중";
+          detail = "Redis가 다시 응답합니다. 새 TCP 검사 결과가 도착하면 현재 상태를 표시합니다.";
+        } else if (Date.now() - (lastEventReceivedAt ?? pageOpenedAt) > 12000) {
+          title = "새 검사 결과가 지연되고 있습니다";
+          detail = "기본 3초 검사 주기보다 오래 새 이벤트가 없습니다. probe와 Redis 구독 로그를 확인하세요.";
+        } else if (Date.now() < recoveryNoticeUntil) {
+          title = "Redis 전달 경로 복구 완료";
+          detail = `Redis 응답과 새 검사 결과를 모두 확인했습니다. ${recoveryEventSummary}`;
+          level = "success";
+        }
+      }
+
+      monitorAlertElement.hidden = !title;
+      monitorAlertElement.dataset.level = level;
+      if (monitorAlertTitleElement.textContent !== title) monitorAlertTitleElement.textContent = title;
+      if (monitorAlertDetailElement.textContent !== detail) monitorAlertDetailElement.textContent = detail;
+
+      const stale = Boolean(title && lastEventReceivedAt && level !== "success");
+      latestPanelElement.classList.toggle("is-stale", stale);
+      latestHeadingElement.textContent = stale ? "마지막 수신 결과 · 현재 상태 아님" : "최근 연결 검사";
+      targetStateSectionElement.classList.toggle("is-stale", stale);
+      targetStateHeadingElement.textContent = stale ? "대상별 마지막 관찰 · 현재 상태 아님" : "대상별 상태";
+    }
+
+    function setConnection(state, message) {
+      connectionElement.dataset.connection = state;
+      connectionElement.textContent = message;
+      updateMonitorNotice();
+    }
+
+    async function checkHealth() {
+      if (healthCheckInProgress) return;
+      healthCheckInProgress = true;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 4000);
+
+      try {
+        const response = await fetch("/health", { cache: "no-store", signal: controller.signal });
+        healthHttpStatus = response.status;
+        if (response.ok) {
+          healthState = "ok";
+          if (redisOutageObserved) {
+            redisHealthRestored = true;
+            needsFreshEvent = true;
+          }
+        } else {
+          healthState = response.status === 503 ? "redis-down" : "http-error";
+          needsFreshEvent = true;
+          resetTargetTracking();
+          if (healthState === "redis-down") {
+            redisOutageObserved = true;
+            redisHealthRestored = false;
+            recoveryNoticeUntil = 0;
+          }
+        }
+      } catch (error) {
+        healthState = "unreachable";
+        needsFreshEvent = true;
+        resetTargetTracking();
+      } finally {
+        window.clearTimeout(timeout);
+        healthCheckInProgress = false;
+        updateMonitorNotice();
+      }
+    }
+
+    function formatTime(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "알 수 없음" : date.toLocaleString("ko-KR");
+    }
+
+    function formatLatency(value) {
+      return typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? `${value.toFixed(1)} ms`
+        : "—";
+    }
+
+    function addCell(row, content) {
+      const cell = document.createElement("td");
+      cell.textContent = content;
+      row.appendChild(cell);
+    }
+
+    function resetTargetTracking() {
+      if (targetStates.size === 0) return;
+      targetStates.clear();
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.className = "empty";
+      cell.colSpan = 5;
+      cell.textContent = "결과 전달이 끊겨 대상별 연속 관찰을 다시 시작합니다.";
+      row.appendChild(cell);
+      targetStateElement.replaceChildren(row);
+    }
+
+    function updateTargetState(target, status, time) {
+      const previous = targetStates.get(target);
+      const failures = status === "open" ? 0 : (previous?.failures ?? 0) + 1;
+      let transition = previous?.transition ?? "첫 수신 · 이전 상태 없음";
+      if (previous && previous.status !== status) {
+        transition = `${statusLabels[previous.status]} → ${statusLabels[status]} · ${time}`;
+      }
+
+      previous?.row.remove();
+      const row = document.createElement("tr");
+      addCell(row, target);
+      const statusCell = document.createElement("td");
+      const statusPill = document.createElement("span");
+      statusPill.className = `status-pill status-${status}`;
+      statusPill.textContent = statusLabels[status];
+      statusCell.appendChild(statusPill);
+      row.appendChild(statusCell);
+      const failureCell = document.createElement("td");
+      failureCell.textContent = failures >= failureWarningThreshold ? `${failures}회 · 주의` : `${failures}회`;
+      failureCell.classList.toggle("failure-warning", failures >= failureWarningThreshold);
+      row.appendChild(failureCell);
+      addCell(row, transition);
+      addCell(row, time);
+
+      targetStateElement.querySelector(".empty")?.parentElement.remove();
+      targetStateElement.prepend(row);
+      targetStates.set(target, { status, failures, transition, row });
+    }
+
+    function showEvent(rawEvent) {
+      if (!rawEvent || typeof rawEvent !== "object" || Array.isArray(rawEvent)) return;
+
+      const status = Object.hasOwn(statusLabels, rawEvent.status) ? rawEvent.status : "error";
+      const target = typeof rawEvent.target === "string" && rawEvent.target.trim()
+        ? rawEvent.target
+        : "대상 정보 없음";
+      const detail = typeof rawEvent.detail === "string" ? rawEvent.detail : "";
+      const time = formatTime(rawEvent.timestamp);
+      const latency = formatLatency(rawEvent.latency_ms);
+
+      latestStatusElement.className = `status-pill status-${status}`;
+      latestStatusElement.textContent = statusLabels[status];
+      latestTargetElement.textContent = target;
+      latestDetailElement.textContent = detail || "추가 설명이 없습니다.";
+      latestTimeElement.textContent = time;
+      latestLatencyElement.textContent = latency;
+
+      const row = document.createElement("tr");
+      addCell(row, time);
+      addCell(row, target);
+      const statusCell = document.createElement("td");
+      const statusPill = document.createElement("span");
+      statusPill.className = `status-pill status-${status}`;
+      statusPill.textContent = statusLabels[status];
+      statusCell.appendChild(statusPill);
+      row.appendChild(statusCell);
+      addCell(row, latency);
+      addCell(row, detail || "—");
+
+      document.getElementById("empty-row")?.remove();
+      historyElement.prepend(row);
+      while (historyElement.rows.length > maxHistoryRows) {
+        historyElement.deleteRow(-1);
+      }
+
+      counters.total += 1;
+      counters[status] += 1;
+      document.getElementById("count-total").textContent = counters.total;
+      document.getElementById(`count-${status}`).textContent = counters[status];
+      // 전달 장애 중 뒤늦게 온 메시지로 연속 실패를 이어 세지 않는다.
+      if (healthState === "ok" || healthState === "checking") {
+        updateTargetState(target, status, time);
+      }
+      lastEventReceivedAt = Date.now();
+      needsFreshEvent = false;
+      if (redisOutageObserved && redisHealthRestored && healthState === "ok") {
+        recoveryEventSummary = `${target} · ${statusLabels[status]} · ${time}`;
+        recoveryNoticeUntil = Date.now() + 30000;
+        redisOutageObserved = false;
+        redisHealthRestored = false;
+      }
+      updateMonitorNotice();
+    }
+
+    function connect() {
+      if (location.protocol !== "http:" && location.protocol !== "https:") {
+        setConnection("offline", "서버 주소로 접속하세요");
+        return;
+      }
+
+      setConnection("connecting", "연결 중...");
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      const currentSocket = new WebSocket(`${scheme}://${location.host}/ws`);
+      socket = currentSocket;
+
+      currentSocket.addEventListener("open", () => {
+        if (socket === currentSocket) setConnection("connected", "실시간 연결됨");
+      });
+
+      currentSocket.addEventListener("message", (message) => {
+        if (socket !== currentSocket) return;
+        try {
+          showEvent(JSON.parse(message.data));
+        } catch (error) {
+          console.warn("형식이 잘못된 WebSocket 이벤트를 무시했습니다", error);
+        }
+      });
+
+      currentSocket.addEventListener("error", () => {
+        if (socket === currentSocket) {
+          needsFreshEvent = true;
+          resetTargetTracking();
+          setConnection("offline", "WebSocket 오류");
+        }
+      });
+
+      currentSocket.addEventListener("close", () => {
+        if (socket !== currentSocket) return;
+        socket = null;
+        needsFreshEvent = true;
+        resetTargetTracking();
+        setConnection("offline", "연결 끊김 · 재시도 중");
+        reconnectTimer = window.setTimeout(connect, 2000);
+      });
+    }
+
+    window.addEventListener("beforeunload", () => {
+      window.clearTimeout(reconnectTimer);
+      if (socket) socket.close();
+    });
+
+    connect();
+    checkHealth();
+    window.setInterval(checkHealth, 3000);
+  </script>
+</body>
+</html>

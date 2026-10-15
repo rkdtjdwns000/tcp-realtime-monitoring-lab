@@ -1,0 +1,81 @@
+name: tcp-realtime-monitoring-lab
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  target:
+    build: .
+    command: ["python", "demo_target.py"]
+    environment:
+      TARGET_PORT: ${TARGET_PORT:-5000}
+    restart: unless-stopped
+
+  probe:
+    build: .
+    command: ["python", "probe.py"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      TARGET_HOST: ${TARGET_HOST:-target}
+      TARGET_PORT: ${TARGET_PORT:-5000}
+      CONNECT_TIMEOUT: ${CONNECT_TIMEOUT:-3}
+      PROBE_INTERVAL: ${PROBE_INTERVAL:-3}
+    depends_on:
+      redis:
+        condition: service_healthy
+      target:
+        condition: service_started
+    restart: unless-stopped
+
+  web_a:
+    build: .
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      INSTANCE_NAME: web_a
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web_b:
+    build: .
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      INSTANCE_NAME: web_b
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["aws"]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web_a
+      - web_b
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
